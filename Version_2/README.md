@@ -60,11 +60,12 @@ Five devices of Version 2 are currently deployed in the Ratnapura District.
 
 ```
 
+```
 version2/
 │
 ├── firmware/
-│   ├── main.ino
-│   └── libraries.txt
+│ ├── main.ino
+│ └── libraries.txt
 │
 ├── hardware/
 │   ├── schematic.pdf
@@ -76,9 +77,6 @@ version2/
 │   └── Image 3.jpeg
 │
 └── README.md
-
-```
-
 ---
 
 ## 📡 Communication Architecture
