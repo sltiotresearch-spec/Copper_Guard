@@ -72,10 +72,6 @@ version2
 │ ├── main.ino
 │ └── libraries.txt
 │
-├── hardware
-│ ├── schematic.pdf
-│ └── pcb_diagram.png
-│
 ├── Images
 │ ├── Image 1.jpeg
 │ ├── Image 2.jpeg
