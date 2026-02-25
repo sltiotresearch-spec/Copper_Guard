@@ -13,10 +13,10 @@ The system evolved through four hardware versions, improving scalability, connec
 
 | Version | Wires Supported | Board Type | Connectivity | Deployment |
 |----------|----------------|------------|--------------|------------|
-| Version 1 | 4 | STEM Board | GSM | Prototype (1 device) |
-| Version 2 | 8 | ESP Board (Dot Board) | GSM + WiFi | 5 devices deployed |
-| Version 3 | 8 | Custom PCB | GSM + WiFi | Improved hardware |
-| Version 4 | 4 | Custom PCB + ESP12F | GSM + WiFi + OLED | Optimized for 4-way junction |
+| Version 1 | <img src="Version1/Version1.jpg" width="120"> | 4 | STEM Board | GSM | Prototype (1 device) |
+| Version 2 | <img src="Version2/Images/Image1.jpg" width="120">| 8 | ESP Board (Dot Board) | GSM + WiFi | 5 devices deployed |
+| Version 3 | <img src="Version3/Images/device.jpg" width="120">| 8 | Custom PCB | GSM + WiFi | Improved hardware |
+| Version 4 | <img src="Version4/Images/device.jpg" width="120">| 4 | Custom PCB + ESP12F | GSM + WiFi + OLED | Optimized for 4-way junction |
 
 ---
 
