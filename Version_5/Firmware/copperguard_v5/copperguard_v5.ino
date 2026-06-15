@@ -3,7 +3,7 @@
 // =====================================================
 // Copper Guard
 // AT OK + Network OK continuous check
-// Incoming SMS configuration
+// Incoming SMS configuration from registered number only
 // Send alert SMS when enabled line is CUT
 // =====================================================
 
@@ -16,7 +16,7 @@
 #define GSM_LINE_LEN        90
 #define SMS_TEXT_LEN        180
 
-char alertNumber[MAX_PHONE_LEN] = "+94750279306";
+char alertNumber[MAX_PHONE_LEN] = "+94704775855";
 char deviceLocation[MAX_LOCATION_LEN] = "Colombo 01 ABC";
 
 // 1 = line enabled
@@ -105,6 +105,7 @@ bool optoState[4];
 bool alertSentForLine[4] = {0, 0, 0, 0};
 
 bool smsPending = false;
+bool smsIsAlert = false;
 byte smsRetryCount = 0;
 bool smsPromptError = false;
 
@@ -263,10 +264,9 @@ void buildAlertSmsText() {
 void buildConfigOkSmsText() {
   smsText[0] = '\0';
 
-  safeAppend(smsText, "CopperGuard Config Updated\r\n", SMS_TEXT_LEN);
-  safeAppend(smsText, "Number: ", SMS_TEXT_LEN);
+  safeAppend(smsText, "Config Updated\r\nNo: ", SMS_TEXT_LEN);
   safeAppend(smsText, alertNumber, SMS_TEXT_LEN);
-  safeAppend(smsText, "\r\nLocation: ", SMS_TEXT_LEN);
+  safeAppend(smsText, "\r\nLoc: ", SMS_TEXT_LEN);
   safeAppend(smsText, deviceLocation, SMS_TEXT_LEN);
   safeAppend(smsText, "\r\n", SMS_TEXT_LEN);
 
@@ -289,9 +289,7 @@ void buildConfigOkSmsText() {
 void buildConfigErrorSmsText() {
   smsText[0] = '\0';
 
-  safeAppend(smsText, "CopperGuard Config Error\r\n", SMS_TEXT_LEN);
-  safeAppend(smsText, "Use format:\r\n", SMS_TEXT_LEN);
-  safeAppend(smsText, "+947XXXXXXXX,Location,1001", SMS_TEXT_LEN);
+  safeAppend(smsText, "Cfg Error\r\n+947XXXXXXXX,Location,1001", SMS_TEXT_LEN);
 }
 
 // =====================================================
@@ -299,12 +297,7 @@ void buildConfigErrorSmsText() {
 // =====================================================
 void setLed(bool on) {
   ledState = on;
-
-  if (on) {
-    digitalWrite(LED_BUILTIN, LED_ON);
-  } else {
-    digitalWrite(LED_BUILTIN, LED_OFF);
-  }
+  digitalWrite(LED_BUILTIN, on ? LED_ON : LED_OFF);
 }
 
 void blinkLed(unsigned int blinkTime) {
@@ -313,11 +306,7 @@ void blinkLed(unsigned int blinkTime) {
 
     ledState = !ledState;
 
-    if (ledState) {
-      digitalWrite(LED_BUILTIN, LED_ON);
-    } else {
-      digitalWrite(LED_BUILTIN, LED_OFF);
-    }
+    digitalWrite(LED_BUILTIN, ledState ? LED_ON : LED_OFF);
   }
 }
 
@@ -332,8 +321,8 @@ bool anyEnabledLineCut() {
 }
 
 void updateLedIndicator() {
-  // Priority 1: SMS sending = blink every 100 ms
-  if (deviceState == STATE_SMS_WAIT_PROMPT || deviceState == STATE_SMS_WAIT_RESULT) {
+  // Priority 1: SMS sending / reminder call = blink every 100 ms
+  if (deviceState >= STATE_SMS_WAIT_PROMPT) {
     blinkLed(100);
     return;
   }
@@ -351,8 +340,17 @@ void updateLedIndicator() {
     return;
   }
 
-  // Normal state = LED OFF
-  setLed(false);
+  // Normal operation heartbeat:
+  // LED ON for 100 ms once every 3 seconds.
+  if (millis() - lastLedTime >= 3000) {
+    lastLedTime = millis();
+    setLed(true);
+    return;
+  }
+
+  if (ledState && millis() - lastLedTime >= 100) {
+    setLed(false);
+  }
 }
 
 // =====================================================
@@ -394,6 +392,8 @@ void sendSmsBody() {
 
   smsStartTime = millis();
 }
+
+bool lineIsSmsError();
 
 // =====================================================
 // GSM LINE READ
@@ -451,9 +451,7 @@ bool readSmsPrompt() {
       if (gsmIndex > 0) {
         trimInPlace(gsmLine);
 
-        if (strcmp(gsmLine, "ERROR") == 0 || strstr(gsmLine, "+CMS ERROR") != 0 || strstr(gsmLine, "+CME ERROR") != 0) {
-          smsPromptError = true;
-        }
+        if (lineIsSmsError()) smsPromptError = true;
       }
 
       gsmIndex = 0;
@@ -472,11 +470,7 @@ bool readSmsPrompt() {
 // GSM RESPONSE CHECKS
 // =====================================================
 bool lineIsOK() {
-  if (strcmp(gsmLine, "OK") == 0) {
-    return true;
-  }
-
-  return false;
+  return strcmp(gsmLine, "OK") == 0;
 }
 
 bool lineIsNetworkOK() {
@@ -484,24 +478,6 @@ bool lineIsNetworkOK() {
     if (strstr(gsmLine, ",1") != 0) return true;
     if (strstr(gsmLine, ",5") != 0) return true;
   }
-
-  return false;
-}
-
-bool lineIsNetworkNotOK() {
-  if (strstr(gsmLine, "+CREG:") != 0) {
-    if (strstr(gsmLine, ",0") != 0) return true;
-    if (strstr(gsmLine, ",2") != 0) return true;
-    if (strstr(gsmLine, ",3") != 0) return true;
-    if (strstr(gsmLine, ",4") != 0) return true;
-  }
-
-  return false;
-}
-
-bool lineIsSmsSentOK() {
-  if (strstr(gsmLine, "+CMGS:") != 0) return true;
-  if (strcmp(gsmLine, "OK") == 0) return true;
 
   return false;
 }
@@ -776,21 +752,23 @@ bool handleIncomingSmsLine() {
   if (waitingSmsBody) {
     waitingSmsBody = false;
 
+    // Security: only the currently registered alert number can update config.
+    // Unknown numbers are ignored without reply.
+    if (strcmp(incomingSender, alertNumber) != 0) {
+      return true;
+    }
+
     if (applyConfigSms(gsmLine)) {
       buildConfigOkSmsText();
-
-      // Send confirmation to the sender of the configuration SMS
-      safeCopy(smsTargetNumber, incomingSender, MAX_PHONE_LEN);
-      smsRetryCount = 0;
-      smsPending = true;
     } else {
       buildConfigErrorSmsText();
-
-      // Send error message to sender
-      safeCopy(smsTargetNumber, incomingSender, MAX_PHONE_LEN);
-      smsRetryCount = 0;
-      smsPending = true;
     }
+
+    // Send config result only to the registered sender.
+    safeCopy(smsTargetNumber, incomingSender, MAX_PHONE_LEN);
+    smsIsAlert = false;
+    smsRetryCount = 0;
+    smsPending = true;
 
     return true;
   }
@@ -804,7 +782,7 @@ bool handleIncomingSmsLine() {
 void serviceGsmHealthCheck() {
   if (healthState == HEALTH_IDLE) {
     if (millis() - lastHealthCheckTime >= HEALTH_CHECK_TIME) {
-      Serial_print_s("AT\r\n");
+      sendATCommand();
 
       healthState = HEALTH_WAIT_AT;
       healthStartTime = millis();
@@ -821,7 +799,7 @@ void serviceGsmHealthCheck() {
       if (lineIsOK()) {
         gsmAtOK = true;
 
-        Serial_print_s("AT+CREG?\r\n");
+        sendNetworkCheckCommand();
 
         healthState = HEALTH_WAIT_NET;
         healthStartTime = millis();
@@ -852,15 +830,6 @@ void serviceGsmHealthCheck() {
         return;
       }
 
-      if (lineIsNetworkNotOK()) {
-        gsmNetOK = false;
-        smsTextModeOK = false;
-        smsReceiveModeOK = false;
-
-        healthState = HEALTH_IDLE;
-        deviceState = STATE_GSM_NET_CHECK;
-        return;
-      }
     }
 
     if (millis() - healthStartTime >= HEALTH_REPLY_TIMEOUT) {
@@ -904,6 +873,7 @@ void checkLineCuts() {
     if (millis() - lastSmsFailTime >= SMS_RETRY_DELAY) {
       buildAlertSmsText();
       safeCopy(smsTargetNumber, alertNumber, MAX_PHONE_LEN);
+      smsIsAlert = true;
       smsRetryCount = 0;
       smsPending = true;
     }
@@ -940,6 +910,7 @@ void handleSmsFailure() {
 
   if (smsRetryCount >= SMS_MAX_RETRY) {
     smsPending = false;
+    smsIsAlert = false;
     smsRetryCount = 0;
   }
 
@@ -1081,16 +1052,31 @@ void serviceStateMachine() {
       if (readGsmLine()) {
         if (handleIncomingSmsLine()) break;
 
-        if (lineIsSmsSentOK()) {
-          // If the sent SMS was an alert, mark current cuts as alerted.
-          // If it was config confirmation, this is harmless.
-          markCurrentCutsAsAlerted();
+        if (lineIsOK()) {
+          // Only alert SMS should mark line cuts and trigger the reminder call.
+          if (smsIsAlert) {
+            markCurrentCutsAsAlerted();
 
-          smsPending = false;
-          smsRetryCount = 0;
+            smsPending = false;
+            smsIsAlert = false;
+            smsRetryCount = 0;
 
-          lastHealthCheckTime = millis();
-          deviceState = STATE_RUN;
+            // Voice call reminder after successful alert SMS.
+            // Blocking method saves flash on STM8S103.
+            Serial_print_s("ATD");
+            Serial_print_s(smsTargetNumber);
+            Serial_print_s(";\r\n");
+            delay(20000);
+            Serial_print_s("ATH\r\n");
+            lastHealthCheckTime = millis();
+            deviceState = STATE_RUN;
+          } else {
+            smsPending = false;
+            smsRetryCount = 0;
+
+            lastHealthCheckTime = millis();
+            deviceState = STATE_RUN;
+          }
         }
 
         if (lineIsSmsError()) {
@@ -1104,6 +1090,7 @@ void serviceStateMachine() {
       }
 
       break;
+
   }
 }
 
